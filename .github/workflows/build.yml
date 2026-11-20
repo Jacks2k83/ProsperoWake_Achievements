@@ -1,0 +1,146 @@
+name: Build eboot.bin
+
+# Builds ProsperoWake (dist/PPSA99309/) on a GitHub-hosted runner, following
+# README.md "Build": the PS5_Vulkan RADV archive, the PS5_PayloadSDK fork and
+# LLVM 22 for the title itself. Run it from the Actions tab.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag of this repository to build
+        default: main
+      build_number:
+        description: Build number shown in the menu and param.json (empty = next after the template's)
+        default: ""
+      vulkan_ref:
+        description: PS5_Vulkan revision (RADV archive, link recipe, libc.prx)
+        default: 66dad9f1670e031d29e244e08a8a930755a44253
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      LLVM_VERSION: 22.1.0
+      PS5_ROOT: ${{ github.workspace }}/PS5
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Check out ProsperoWake
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          path: PS5/ProsperoWake
+          fetch-depth: 1
+          submodules: false
+
+      - name: Install host packages
+        run: |
+          sudo apt-get update -q
+          # clang-18 builds the host tools and RADV (mesa_clc needs libclc and
+          # the SPIR-V translator for the same LLVM); LLVM 22 builds the title.
+          sudo apt-get install -y -q ninja-build cmake rsync wget unzip flex bison \
+            python3-yaml python3-mako python3-packaging python3-pycparser glslang-tools \
+            clang-18 llvm-18-dev libclang-18-dev libclang-cpp18-dev libclc-18 libclc-18-dev \
+            llvm-spirv-18 libllvmspirvlib-18-dev zlib1g-dev pkg-config
+          pip install --break-system-packages 'meson>=1.6'
+
+      - name: Cache LLVM 22
+        id: llvm-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/llvm22
+          key: llvm-${{ env.LLVM_VERSION }}-linux-x64
+
+      - name: Download LLVM 22
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/llvm22
+          curl -sSL "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/LLVM-${LLVM_VERSION}-Linux-X64.tar.xz" \
+            | tar -xJ -C ~/llvm22 --strip-components=1
+          # Keep only what the build uses, so the cache stays small.
+          rm -rf ~/llvm22/lib/*.a ~/llvm22/lib/cmake ~/llvm22/include ~/llvm22/libexec
+          d=~/llvm22/lib/clang/22/lib
+          mkdir -p "$d/linux"
+          ln -sf ../x86_64-unknown-linux-gnu/libclang_rt.builtins.a "$d/linux/libclang_rt.builtins-x86_64.a"
+          ~/llvm22/bin/clang --version
+
+      - name: Fetch PS5_Vulkan, PS5_Mesa and PS5_PayloadSDK
+        working-directory: PS5
+        run: |
+          for r in PS5_Vulkan PS5_Mesa PS5_PayloadSDK; do
+            git clone -q --filter=blob:none "https://github.com/mihawk-99/$r" "$r"
+          done
+          git -C PS5_Vulkan checkout -q "${{ inputs.vulkan_ref }}"
+          echo "PS5_Vulkan: $(git -C PS5_Vulkan rev-parse HEAD)"
+
+      - name: Cache PS5_Vulkan native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            PS5/PS5_Vulkan/.deps/native
+            PS5/PS5_Vulkan/build/host
+            PS5/PS5_Vulkan/runtime/libc.prx
+          key: ps5-vulkan-${{ inputs.vulkan_ref }}-v1
+
+      - name: Build RADV, libc.prx and the native tool (PS5_Vulkan)
+        working-directory: PS5/PS5_Vulkan
+        run: |
+          bash tools/setup-native-dependencies.sh
+          bash tools/build-radv.sh release || { tail -60 .deps/work/radv-*.log; exit 1; }
+          [[ -f runtime/libc.prx ]] || make libc
+          (cd runtime && sha256sum -c libc.prx.sha256)
+          if [[ ! -x build/host/ps5-native-tool ]]; then
+            mkdir -p build/host
+            n=tooling/native; z=.deps/native/zlib/root
+            clang++ -std=c++20 -O2 -Wall -Wextra -Werror -I "$z/usr/include" \
+              $n/native_app_builder.cpp $n/self_container.cpp $n/elf_object.cpp $n/sce_module_writer.cpp \
+              "$(find "$z" -name libz.a -print -quit)" -o build/host/ps5-native-tool
+          fi
+          cat .deps/native/radv-release/PROVENANCE.txt
+
+      - name: Seed the build number
+        if: inputs.build_number != ''
+        working-directory: PS5/ProsperoWake
+        run: |
+          mkdir -p build/game
+          python3 - "${{ inputs.build_number }}" <<'PY'
+          import json, sys
+          n = int(sys.argv[1]) - 1  # build.sh adds one
+          m = json.load(open('ps5/sce_sys/param.json'))
+          major = m['contentVersion'].split('.')[0]
+          m['contentVersion'] = f'{major}.{n // 1000:03d}.{n % 1000:03d}'
+          json.dump(m, open('build/game/param.json', 'w'), indent=2)
+          PY
+
+      - name: Build ProsperoWake
+        working-directory: PS5/ProsperoWake
+        run: |
+          export PS5_CLANG=$HOME/llvm22/bin/clang
+          export LLVM_CONFIG=$HOME/llvm22/bin/llvm-config
+          export PS5_VULKAN_DIR=$PS5_ROOT/PS5_Vulkan
+          export PS5_PAYLOAD_SDK_FORK=$PS5_ROOT/PS5_PayloadSDK
+          bash ps5/tools/build.sh
+          ls -la dist/PPSA99309
+          sha256sum dist/PPSA99309/eboot.bin
+
+      - name: Upload PPSA99309
+        uses: actions/upload-artifact@v4
+        with:
+          name: PPSA99309-${{ github.run_number }}
+          path: PS5/ProsperoWake/dist/PPSA99309
+          if-no-files-found: error
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_number }}
+          path: |
+            PS5/ProsperoWake/build/game/*.log
+            PS5/PS5_Vulkan/.deps/work/*.log
+          if-no-files-found: ignore
