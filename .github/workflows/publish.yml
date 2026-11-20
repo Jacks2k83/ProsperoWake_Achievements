@@ -1,0 +1,45 @@
+name: Publish build as release
+
+# Turns the PPSA99309 artifact of a finished "Build eboot.bin" run into a
+# GitHub prerelease, so it can be downloaded without signing in (by a script
+# on the PC, for example). Delete the release to unpublish it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Run ID of the "Build eboot.bin" run
+        required: true
+      tag:
+        description: Release tag (for example build-76-ci)
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download the build artifact
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: PPSA99309-*
+          path: out
+
+      - name: Create the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir=$(ls -d out/PPSA99309-* | head -1)
+          mv "$dir" PPSA99309
+          (cd PPSA99309 && sha256sum eboot.bin) | tee SHA256SUMS
+          zip -qr "PPSA99309-${{ inputs.tag }}.zip" PPSA99309
+          sha256sum "PPSA99309-${{ inputs.tag }}.zip" >> SHA256SUMS
+          gh release create "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" --prerelease \
+            --target "$GITHUB_SHA" --title "${{ inputs.tag }} (CI run ${{ inputs.run_id }})" \
+            --notes "Built by GitHub Actions run https://github.com/$GITHUB_REPOSITORY/actions/runs/${{ inputs.run_id }}. Copy PPSA99309/ (or just eboot.bin) to /data/homebrew/ on the PS5; the game image is not included." \
+            "PPSA99309-${{ inputs.tag }}.zip" PPSA99309/eboot.bin SHA256SUMS
