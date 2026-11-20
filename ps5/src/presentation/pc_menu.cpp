@@ -22,6 +22,7 @@
 #include "pc/pc_profiler.h"
 #include "pc/pc_menu_language.h"
 #include "pc/pc_ui_style.h"
+#include "pc/pc_achievements.h"
 
 #include "d/d_com_inf_game.h"
 #include "d/d_s_play.h"
@@ -548,7 +549,7 @@ const PcSettingDesc kFxPresetRow = {"FX_PRESET", "Preset",
 
 // ---- menu state ----------------------------------------------------------------------------------
 
-enum class RowKind { MenuDemo, RestoreDefaults, DeveloperTools, Setting, Warp, Sailing, PictoBox, DeluxePictoBox, Screenshot, Reload };
+enum class RowKind { Achievements, MenuDemo, RestoreDefaults, DeveloperTools, Setting, Warp, Sailing, PictoBox, DeluxePictoBox, Screenshot, Reload };
 
 struct Row {
     RowKind kind;
@@ -569,6 +570,8 @@ struct Menu {
     bool open = false;
     bool warpPage = false;
     bool toolsPage = false;
+    bool achievementsPage = false;
+    int achievementRow = 0;
     int systemRow = 0;
     int tab = 0;
     int row[PC_SETTING_TABS] = {};
@@ -616,6 +619,7 @@ std::vector<Row> rowsOf(int tab) {
     std::vector<Row> rows;
     if (tab == PC_SETTING_TAB_FX) rows.push_back({RowKind::Setting, &kFxPresetRow});
     if (tab == PC_SETTING_TAB_DEBUG && !m.toolsPage) {
+        rows.push_back({RowKind::Achievements});
         rows.push_back({RowKind::RestoreDefaults});
         rows.push_back({RowKind::DeveloperTools});
     }
@@ -645,10 +649,12 @@ std::vector<Row> rowsOf(int tab) {
         });
     } else {
         std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
-            const int aOrder = a.kind == RowKind::RestoreDefaults ? 615 :
+            const int aOrder = a.kind == RowKind::Achievements ? -1 :
+                a.kind == RowKind::RestoreDefaults ? 615 :
                 a.kind == RowKind::DeveloperTools ? 620 :
                 pc_menu_setting_order(a.desc ? a.desc->key : "", a.desc ? a.desc->order : 0);
-            const int bOrder = b.kind == RowKind::RestoreDefaults ? 615 :
+            const int bOrder = b.kind == RowKind::Achievements ? -1 :
+                b.kind == RowKind::RestoreDefaults ? 615 :
                 b.kind == RowKind::DeveloperTools ? 620 :
                 pc_menu_setting_order(b.desc ? b.desc->key : "", b.desc ? b.desc->order : 0);
             return aOrder < bOrder;
@@ -723,6 +729,7 @@ void setOpen(bool open) {
     pc_player_controls_reset();
     m.warpPage = false;
     m.toolsPage = false;
+    m.achievementsPage = false;
     m.waitRelease = true;
     PADBlockInput(open);
     if (open) {
@@ -797,11 +804,14 @@ void givePictoBox(bool deluxe) {
 
 void activate(const Row& r, int dir) {
     switch (r.kind) {
+    case RowKind::Achievements:
+        if (dir == 0) { m.achievementsPage = true; m.scrollToRow = true; }
+        break;
     case RowKind::MenuDemo:
         if (dir == 0) {
             m.demo = true;
             m.demoReady = false;
-            m.toolsPage = m.warpPage = false;
+            m.toolsPage = m.warpPage = m.achievementsPage = false;
             m.tab = 0;
             m.row[0] = 0;
             m.scrollToRow = true;
@@ -876,6 +886,7 @@ void selectTab(int tab) {
     m.tab = tab;
     m.warpPage = false;
     m.toolsPage = false;
+    m.achievementsPage = false;
     m.scrollToRow = true;
 }
 
@@ -960,6 +971,20 @@ void handleInput(uint32_t keys) {
         }
         return;
     }
+    if (m.achievementsPage) {
+        const int count = pc_achievements_count();
+        if (p & kBack) {
+            m.achievementsPage = false;
+            m.scrollToRow = true;
+            return;
+        }
+        if (p & (kUp | kDown | kLeft | kRight)) {
+            const int step = (p & kLeft) ? -10 : (p & kRight) ? 10 : (p & kUp) ? -1 : 1;
+            m.achievementRow = std::max(0, std::min(count - 1, m.achievementRow + step));
+            m.scrollToRow = true;
+        }
+        return;
+    }
     if (p & kBack) {
         if (m.tab == PC_SETTING_TAB_DEBUG && m.toolsPage) {
             m.toolsPage = false; m.scrollToRow = true; return;
@@ -1000,6 +1025,7 @@ const ImVec4 kWarn(1.00f, 0.55f, 0.45f, 1.0f);
 
 std::string rowLabel(const Row& r) {
     switch (r.kind) {
+    case RowKind::Achievements: return T("Achievements");
     case RowKind::MenuDemo: return T("Menu demo");
     case RowKind::RestoreDefaults: return T("Restore defaults");
     case RowKind::DeveloperTools: return T("Developer tools…");
@@ -1017,6 +1043,11 @@ std::string rowLabel(const Row& r) {
 
 std::string rowValue(const Row& r) {
     switch (r.kind) {
+    case RowKind::Achievements: {
+        char text[32];
+        snprintf(text, sizeof(text), "%d / %d", pc_achievements_unlocked(), pc_achievements_count());
+        return text;
+    }
     case RowKind::MenuDemo: return T("Start");
     case RowKind::RestoreDefaults: return T("Restore");
     case RowKind::DeveloperTools: return T("Open");
@@ -1063,6 +1094,7 @@ std::string rowNote(const Row& r) {
 
 std::string rowHelp(const Row& r) {
     switch (r.kind) {
+    case RowKind::Achievements: return T("Goals unlocked from your saved progress. They are kept apart from the game's save and are never lost.");
     case RowKind::MenuDemo: return T("Shows the touchpad hint, tours the tabs, then closes the menu. Menu controls stop the demo. Settings stay unchanged.");
     case RowKind::RestoreDefaults: return T("Deletes the settings file and restores default options. Saves and shader caches are kept. Restart the game afterwards.");
     case RowKind::DeveloperTools: return T("Diagnostics, logs and test actions. Some actions change game progress.");
@@ -1089,7 +1121,7 @@ bool gameplayOptionRow(const Row& r, bool selected, bool locked, const ImVec4& d
     const auto label = rowLabel(r);
     auto value = rowValue(r);
     return pc_ps5_gameplay_option_row(label.c_str(), value.c_str(),
-        r.kind == RowKind::DeveloperTools,
+        r.kind == RowKind::DeveloperTools || r.kind == RowKind::Achievements,
         selected, locked, dim, kAccent, r.kind == RowKind::Setting);
 }
 
@@ -1175,7 +1207,7 @@ void drawMenu() {
     }
     ImGui::Spacing();
 
-    const int page = m.tab*4 + (m.toolsPage ? 1 : 0) + (m.warpPage ? 2 : 0);
+    const int page = m.tab*4 + (m.achievementsPage ? 3 : (m.toolsPage ? 1 : 0) + (m.warpPage ? 2 : 0));
     if (page != m.displayedPage) {
         // Opening already animates the whole window. Only subsequent navigation
         // fades the content; repeated tab presses immediately select the latest page.
@@ -1194,6 +1226,12 @@ void drawMenu() {
         const auto& warp=warpAt(m.warpRow);
         helpTitle=warp.label ? T(warp.label) : warp.stage;
         help=T("Up/down: choose. Left/right: skip 10 locations.");
+    } else if (m.achievementsPage) {
+        if (pc_achievements_count() > 0) {
+            const auto info=pc_achievements_at(std::clamp(m.achievementRow,0,pc_achievements_count()-1));
+            helpTitle=T(info.title);
+            help=T(info.description);
+        }
     } else if (!previewRows.empty()) {
         const auto& selected=previewRows[std::clamp(selectedMenuRow(m.tab),0,int(previewRows.size())-1)];
         helpTitle=rowLabel(selected);
@@ -1242,6 +1280,31 @@ void drawMenu() {
             const Warp& selectedWarp = warpAt(m.warpRow);
             helpTitle = selectedWarp.label ? T(selectedWarp.label) : selectedWarp.stage;
             help = T("Up/down: choose. Left/right: skip 10 locations.");
+        } else if (m.achievementsPage) {
+            ImGui::TextColored(kAccent, "%s", T("System / Achievements"));
+            const int count = pc_achievements_count();
+            m.achievementRow = count > 0 ? std::clamp(m.achievementRow, 0, count - 1) : 0;
+            char heading[96];
+            snprintf(heading, sizeof(heading), T("Unlocked: %d of %d"), pc_achievements_unlocked(), count);
+            pc_ps5_menu_section(heading);
+            for (int i = 0; i < count; i++) {
+                const PcAchievementInfo info = pc_achievements_at(i);
+                char value[48];
+                if (info.unlocked) snprintf(value, sizeof(value), "%s", T("Unlocked"));
+                else if (info.progress >= 0) snprintf(value, sizeof(value), "%d / %d", info.progress, info.goal);
+                else snprintf(value, sizeof(value), "%s", T("Locked"));
+                ImGui::PushID(i);
+                if (pc_ps5_gameplay_option_row(T(info.title), value, false, i == m.achievementRow,
+                        !info.unlocked, kDim, kAccent, false))
+                    m.achievementRow = i;
+                if (i == m.achievementRow) scrollSelectedRow(i == 0);
+                ImGui::PopID();
+                if (i == m.achievementRow) {
+                    helpTitle = T(info.title);
+                    help = T(info.description);
+                    helpNote.clear();
+                }
+            }
         } else {
             if (m.tab == PC_SETTING_TAB_DEBUG && m.toolsPage) {
                 ImGui::TextColored(kAccent, "%s", T("System / Developer tools"));
@@ -1249,19 +1312,22 @@ void drawMenu() {
             const std::vector<Row> rows = rowsOf(m.tab);
             int& row = selectedMenuRow(m.tab);
             row = rows.empty() ? 0 : std::min(row, (int)rows.size() - 1);
+            constexpr int kAchievementsSection = 100;
             int previousSection = -1;
             for (int i = 0; i < (int)rows.size(); i++) {
                 const Row& r = rows[i];
                 const int section = r.desc
                     ? (m.tab == PC_SETTING_TAB_GAMEPLAY ? 1 + int(pc_gameplay_menu_group(r.desc->key))
                                                        : pc_menu_setting_section(r.desc->key))
+                    : r.kind == RowKind::Achievements ? kAchievementsSection
                     : (r.kind == RowKind::RestoreDefaults || r.kind == RowKind::DeveloperTools) ? int(PcMenuSection::Menu)
                     : (r.kind == RowKind::Warp || r.kind == RowKind::Sailing || r.kind == RowKind::PictoBox || r.kind == RowKind::DeluxePictoBox) ? int(PcMenuSection::TestActions) : int(PcMenuSection::Utilities);
                 if (section && section != previousSection) {
                     static const char* names[] = {"", "Display", "Textures", "Camera and aiming", "Buttons", "Menu", "FPS counter", "Visual enhancements", "Vibration", "Test actions", "Utilities", "Logging", "Post-processing"};
                     if (previousSection >= 0) ImGui::Spacing();
                     pc_ps5_menu_section(m.tab == PC_SETTING_TAB_GAMEPLAY
-                        ? gameplayGroupName(section-1) : T(names[section]));
+                        ? gameplayGroupName(section-1)
+                        : section == kAchievementsSection ? T("Achievements") : T(names[section]));
                 }
                 previousSection = section;
                 const bool locked = r.kind == RowKind::Setting && pc_settings_locked(r.desc->key);
@@ -1310,10 +1376,11 @@ void drawMenu() {
     const int currentRow = selectedMenuRow(m.tab);
     const char* action = T("Choose");
     if (m.warpPage) action = T("Travel");
+    else if (m.achievementsPage) action = T("Choose");
     else if (currentRow >= 0 && currentRow < int(currentRows.size())) {
         const auto kind = currentRows[currentRow].kind;
         if (kind == RowKind::Setting) action = T("Change");
-        else if (kind == RowKind::DeveloperTools || kind == RowKind::Warp)
+        else if (kind == RowKind::DeveloperTools || kind == RowKind::Warp || kind == RowKind::Achievements)
             action = T("Open");
         else if (kind == RowKind::Screenshot) action = T("Capture");
         else if (kind == RowKind::Reload) action = T("Reload");
@@ -1394,6 +1461,8 @@ bool menuOpen() {
 // Draw-only overlay: called for every presentation, including interpolation frames.
 void menuOverlayFrame() {
     if (!m.initialized || ImGui::GetCurrentContext() == nullptr) return;
+    // Achievements: checked against the save and announced on every presented frame.
+    if (!m.demo) pc_achievements_frame();
     // Replay the same touchpad hint for the demo, on every presentation frame.
     if (m.demo && m.demoReady && !m.open) {
         const float elapsed = float(ImGui::GetTime() - m.demoStarted);

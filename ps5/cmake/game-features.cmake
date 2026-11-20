@@ -22,6 +22,7 @@ function(ps5_attach_game_features)
         "${PS5_PORT_DIR}/ps5/src/integration/pc_menu_smoke.cpp"
         "${PS5_PORT_DIR}/ps5/src/presentation/pc_menu_language.cpp"
         "${PS5_PORT_DIR}/ps5/src/presentation/pc_overlay.cpp"
+        "${PS5_PORT_DIR}/ps5/src/features/pc_achievements.cpp"
         "${PS5_PORT_DIR}/ps5/src/features/pc_camera_controls.cpp"
         "${PS5_PORT_DIR}/ps5/src/features/pc_gameplay_options.cpp"
         "${PS5_PORT_DIR}/ps5/src/features/pc_player_controls.cpp"
@@ -40,11 +41,13 @@ function(ps5_attach_game_features)
     )
     # Header/compile settings only; Aurora already owns the linked ImGui library.
     set_property(SOURCE "${PS5_PORT_DIR}/ps5/src/presentation/pc_menu.cpp"
+        "${PS5_PORT_DIR}/ps5/src/features/pc_achievements.cpp"
         "${PS5_PORT_DIR}/ps5/src/presentation/pc_overlay.cpp"
         "${PS5_PORT_DIR}/ps5/src/presentation/pc_menu_widgets.cpp"
         "${PS5_PORT_DIR}/ps5/src/presentation/pc_shader_loading.cpp"
         APPEND PROPERTY INCLUDE_DIRECTORIES "$<TARGET_PROPERTY:imgui,INTERFACE_INCLUDE_DIRECTORIES>")
     set_property(SOURCE "${PS5_PORT_DIR}/ps5/src/presentation/pc_menu.cpp"
+        "${PS5_PORT_DIR}/ps5/src/features/pc_achievements.cpp"
         "${PS5_PORT_DIR}/ps5/src/presentation/pc_overlay.cpp"
         "${PS5_PORT_DIR}/ps5/src/presentation/pc_menu_widgets.cpp"
         "${PS5_PORT_DIR}/ps5/src/presentation/pc_shader_loading.cpp"
