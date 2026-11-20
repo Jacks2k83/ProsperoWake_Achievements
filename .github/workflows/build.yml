@@ -102,9 +102,17 @@ jobs:
           # by LLVM 22: clang 18's PS5 target gives Mesa's hidden weak entry-point
           # declarations default visibility, and the title converter then fails
           # with "no public SDK stub exports required symbol radv_...".
-          # mesa_clc (a host tool) still builds against the system LLVM 18.
-          export LLVM_CONFIG=$HOME/llvm22/bin/llvm-config
-          bash tools/build-radv.sh release || { tail -60 .deps/work/radv-*.log; exit 1; }
+          # mesa_clc (a host tool) must build against the system LLVM 18, and
+          # meson also follows LLVM_CONFIG, so the first pass (without it)
+          # configures mesa_clc; the second rebuilds RADV itself with LLVM 22.
+          if ! grep -qs '^assertions: off' .deps/native/radv-release/PROVENANCE.txt ||
+             [[ ! -f .deps/native/radv-release/.llvm22 ]]; then
+            bash tools/build-radv.sh release || { tail -60 .deps/work/radv-*.log; exit 1; }
+            rm -rf .deps/native/radv-release .deps/work/radv-build-ps5-release
+            LLVM_CONFIG=$HOME/llvm22/bin/llvm-config bash tools/build-radv.sh release ||
+              { tail -60 .deps/work/radv-*.log; exit 1; }
+            touch .deps/native/radv-release/.llvm22
+          fi
           [[ -f runtime/libc.prx ]] || make libc
           (cd runtime && sha256sum -c libc.prx.sha256)
           if [[ ! -x build/host/ps5-native-tool ]]; then
