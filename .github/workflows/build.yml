@@ -33,10 +33,17 @@ jobs:
       - name: Check out ProsperoWake
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
           path: PS5/ProsperoWake
-          fetch-depth: 1
+          fetch-depth: 0
+          filter: blob:none
           submodules: false
+
+      - name: Select the commit to build
+        working-directory: PS5/ProsperoWake
+        run: |
+          # Short hashes, branches and tags all resolve against the full history.
+          git checkout -q --detach "$(git rev-parse --verify "${{ inputs.ref }}^{commit}" 2>/dev/null || git rev-parse --verify "origin/${{ inputs.ref }}^{commit}")"
+          git log -1 --format='Building %H (%cd) %s'
 
       - name: Install host packages
         run: |
