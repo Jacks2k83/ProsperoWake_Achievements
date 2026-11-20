@@ -48,8 +48,8 @@ jobs:
       - name: Install host packages
         run: |
           sudo apt-get update -q
-          # clang-18 builds the host tools and RADV (mesa_clc needs libclc and
-          # the SPIR-V translator for the same LLVM); LLVM 22 builds the title.
+          # clang-18 builds the host tools (mesa_clc needs libclc and the
+          # SPIR-V translator for the same LLVM); LLVM 22 builds RADV and the title.
           sudo apt-get install -y -q ninja-build cmake rsync wget unzip flex bison \
             python3-yaml python3-mako python3-packaging python3-pycparser glslang-tools \
             clang-18 llvm-18-dev libclang-18-dev libclang-cpp18-dev libclc-18 libclc-18-dev \
@@ -92,12 +92,18 @@ jobs:
             PS5/PS5_Vulkan/.deps/native
             PS5/PS5_Vulkan/build/host
             PS5/PS5_Vulkan/runtime/libc.prx
-          key: ps5-vulkan-${{ inputs.vulkan_ref }}-v1
+          key: ps5-vulkan-${{ inputs.vulkan_ref }}-llvm22-v2
 
       - name: Build RADV, libc.prx and the native tool (PS5_Vulkan)
         working-directory: PS5/PS5_Vulkan
         run: |
           bash tools/setup-native-dependencies.sh
+          # The SDK's compiler wrappers follow LLVM_CONFIG. RADV must be compiled
+          # by LLVM 22: clang 18's PS5 target gives Mesa's hidden weak entry-point
+          # declarations default visibility, and the title converter then fails
+          # with "no public SDK stub exports required symbol radv_...".
+          # mesa_clc (a host tool) still builds against the system LLVM 18.
+          export LLVM_CONFIG=$HOME/llvm22/bin/llvm-config
           bash tools/build-radv.sh release || { tail -60 .deps/work/radv-*.log; exit 1; }
           [[ -f runtime/libc.prx ]] || make libc
           (cd runtime && sha256sum -c libc.prx.sha256)
