@@ -202,7 +202,7 @@ void pc_ps5_menu_heading(const char* title) {
     const char* name="ProsperoWake";
     const float nameEnd=nameX+ImGui::GetFont()->CalcTextSizeA(nameSize,1e6f,0.f,name).x;
     const float labelWidth=ImGui::CalcTextSize(title).x;
-    char buildLabel[64];
+    char buildLabel[128];
     std::snprintf(buildLabel,sizeof(buildLabel),pc_menu_text("Build %s"),PS5_BUILD_NUMBER);
     const auto region = pc_disc_region();
     const char* regionLabel = region == PcDiscRegion::USA ? "USA" :
@@ -210,6 +210,11 @@ void pc_ps5_menu_heading(const char* title) {
     if (regionLabel) {
         const size_t length = std::strlen(buildLabel);
         std::snprintf(buildLabel + length, sizeof(buildLabel) - length, " - %s", regionLabel);
+    }
+    {
+        // This fork's name, so anyone handed the eboot knows which build carries the achievements.
+        const size_t length = std::strlen(buildLabel);
+        std::snprintf(buildLabel + length, sizeof(buildLabel) - length, " · %s", "Jacks Achievements Add-on");
     }
     const float versionWidth=ImGui::GetFont()->CalcTextSizeA(versionSize,1e6f,0.f,buildLabel).x;
     const float versionX=(width-versionWidth)*.5f;

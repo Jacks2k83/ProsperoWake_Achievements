@@ -30,9 +30,6 @@
 #include <string>
 #include <vector>
 
-#if defined(__PROSPERO__)
-extern "C" int sceKernelSendNotificationRequest(int device, void* request, size_t size, int blocking);
-#endif
 
 namespace {
 struct Progress { int value, goal; };
@@ -252,7 +249,7 @@ const Achievement kAchievements[] = {
     {"deku_leaf", dItemNo_DEKU_LEAF_e, "Flapping in the Breeze", "Obtain the Deku Leaf.", [] { return has(dInvSlot_DEKU_LEAF_e); }, nullptr},
     {"boomerang", dItemNo_BOOMERANG_e, "Back at Ya...Fivefold!", "Obtain the Boomerang.", [] { return has(dInvSlot_BOOMERANG_e); }, nullptr},
     {"pearl_farore", dItemNo_PEARL_FARORE_e, "Farore's Dream", "Obtain Farore's Pearl.", [] { return bool(dComIfGs_isSymbol(dSymbol_FARORE_e)); }, nullptr},
-    {"magic_upgrade", dItemNo_NONE_e, "Kazam", "Obtain the magic power upgrade.", [] { return dComIfGs_getMaxMagic() >= 32; }, nullptr},
+    {"magic_upgrade", dItemNo_GREEN_POTION_e, "Kazam", "Obtain the magic power upgrade.", [] { return dComIfGs_getMaxMagic() >= 32; }, nullptr},
     {"bombs", dItemNo_BOMB_BAG_e, "Have a Blast", "Obtain bombs.", [] { return has(dInvSlot_BOMB_e); }, nullptr},
     {"bombs_60", dItemNo_MAX_BOMB_UP1_e, "Kaboom", "Be able to carry 60 bombs.", [] { return dComIfGs_getBombMax() >= 60; }, nullptr},
     {"bombs_99", dItemNo_MAX_BOMB_UP2_e, "Gunboat Diplomacy", "Be able to carry 99 bombs.", [] { return dComIfGs_getBombMax() >= 99; }, nullptr},
@@ -279,7 +276,7 @@ const Achievement kAchievements[] = {
     {"ballad_of_gales", dItemNo_BALLAD_OF_GALES_e, "The Voice of Boreas", "Learn the Ballad of Gales.", [] { return bool(dComIfGs_isTact(kBalladOfGales)); }, nullptr},
     {"tingle_tuner", dItemNo_TINGLE_TUNER_e, "Second Hand Junk", "Obtain the Hand-Me-Down Tuner.", [] { return has(dInvSlot_TINGLE_TUNER_e); }, nullptr},
     {"skull_hammer", dItemNo_SKULL_HAMMER_e, "Drop the Hammer", "Obtain the Skull Hammer.", [] { return has(dInvSlot_SKULL_HAMMER_e); }, nullptr},
-    {"ting_discount", dItemNo_TINGLE_TUNER_e, "Left-Over Magic Broth", "Receive a permanent discount on Tingle's Tings.",
+    {"ting_discount", dItemNo_TINGLE_STATUE_1_e, "Left-Over Magic Broth", "Receive a permanent discount on Tingle's Tings.",
         [] { return event(dSv_event_flag_c::UNLOCK_TING_DISCOUNT); }, nullptr},
     {"magic_arrows", dItemNo_MAGIC_ARROW_e, "Diametrically Opposed", "Obtain the Fire and Ice Arrows.", [] { return arrows(false); }, nullptr},
     {"heros_charm", dItemNo_HEROS_CHARM_e, "The Face of a Champion", "Obtain the Hero's Charm.", [] { return bool(dComIfGs_isCollect(4, 0)); }, nullptr},
@@ -306,11 +303,11 @@ const Achievement kAchievements[] = {
         [] { return dComIfGs_getTriforceNum() >= 8; }, [] { return Progress{dComIfGs_getTriforceNum(), 8}; }},
     {"light_arrows", dItemNo_LIGHT_ARROW_e, "The Power to Kill", "Obtain the Light Arrow.", [] { return arrows(true); }, nullptr},
     // The name-entry scene after the credits starts the second quest from the cleared save.
-    {"ganondorf", dItemNo_SAIL_e, "As Dandelions", "Defeat Ganondorf and set sail for a new land.",
+    {"ganondorf", dItemNo_HEROS_FLAG_e, "As Dandelions", "Defeat Ganondorf and set sail for a new land.",
         [] { return dComIfGs_getClearCount() != 0; }, nullptr},
     {"special_charts", dItemNo_COLLECT_MAP_36_e, "Cartophile", "Obtain all special charts.",
         [] { return specialCharts() >= 12; }, [] { return Progress{specialCharts(), 12}; }},
-    {"sea_chart_half", dItemNo_COLLECT_MAP_53_e, "Rookie Cartographer", "Map half of the islands on your Sea Chart.",
+    {"sea_chart_half", dItemNo_COMPASS_e, "Rookie Cartographer", "Map half of the islands on your Sea Chart.",
         [] { return mappedIslands() >= 25; }, [] { return Progress{mappedIslands(), 25}; }},
     {"sea_chart_full", dItemNo_COLLECT_MAP_53_e, "Master Cartographer", "Map the entire Great Sea.",
         [] { return mappedIslands() >= dIsleIdx_COUNT_e; }, [] { return Progress{mappedIslands(), dIsleIdx_COUNT_e}; }},
@@ -334,7 +331,6 @@ struct State {
     long long unlockedAt[kCount] = {};
     uint64_t lastCheck = 0;
     std::deque<Banner> banners;
-    std::string testIcon; // the notification icon the last test tried, shown on its banner
 } s;
 
 std::string storePath() {
@@ -376,50 +372,6 @@ void save() {
     else std::remove(temporary.c_str());
 }
 
-// Icons to try for the console notification: user/notification-icon.txt, one URI or path per line.
-// Unlocks use the first; each press of the test button tries the next. Read on every use, so the
-// file can be edited over FTP and tried again without restarting.
-std::vector<std::string> notificationIcons() {
-    std::vector<std::string> icons;
-    std::string path = pc_settings_path() ? pc_settings_path() : "";
-    const auto slash = path.find_last_of('/');
-    if (slash != std::string::npos) path = path.substr(0, slash + 1) + "notification-icon.txt";
-    if (FILE* file = std::fopen(path.c_str(), "r")) {
-        char line[1024];
-        while (std::fgets(line, sizeof(line), file)) {
-            std::string value(line);
-            while (!value.empty() && (value.back() == '\n' || value.back() == '\r' || value.back() == ' ')) value.pop_back();
-            if (!value.empty() && value[0] != '#') icons.push_back(value);
-        }
-        std::fclose(file);
-    }
-    if (icons.empty()) icons.push_back("cxml://psnotification/tex_icon_system");
-    return icons;
-}
-
-void notifyConsole(const char* line, const std::string& iconUri) {
-#if defined(__PROSPERO__)
-    // The shell's notification request (OrbisNotificationRequest), as payloads use it.
-    struct Request {
-        int type, reqId, priority, msgId, targetId, userId, unk1, unk2, appId, errorNum, unk3;
-        char useIconImageUri;
-        char message[1024];
-        char iconUri[1024];
-        char unk[1024];
-    } request{};
-    request.targetId = -1;
-    request.useIconImageUri = 1;
-    std::snprintf(request.message, sizeof(request.message), "%s\n%s",
-        pc_menu_text("Achievement unlocked"), line);
-    std::snprintf(request.iconUri, sizeof(request.iconUri), "%s", iconUri.c_str());
-    sceKernelSendNotificationRequest(0, &request, sizeof(request), 0);
-#else
-    (void)line;
-    (void)iconUri;
-#endif
-}
-void notifyConsole(const char* line) { notifyConsole(line, notificationIcons().front()); }
-
 // The game's small "item get" jingle (as for rupees from a chest), once per announcement.
 void jingle() { mDoAud_seStart(JA_SE_ME_ITEM_GET_S); }
 
@@ -448,15 +400,11 @@ void check(uint64_t now) {
     if (count > 3) {
         s.banners.push_back({-count, 0});
         jingle();
-        char line[96];
-        std::snprintf(line, sizeof(line), pc_menu_text("%d achievements from your saved progress"), count);
-        notifyConsole(line);
         return;
     }
     jingle();
     for (int k = 0; k < count; ++k) {
         s.banners.push_back({found[k], 0});
-        notifyConsole(pc_menu_text(kAchievements[found[k]].title));
     }
 }
 
@@ -497,7 +445,6 @@ void drawBanner(uint64_t now) {
             ImGui::TextColored(pc::ui::text, "%s", pc_menu_text("Test notification"));
             ImGui::SetWindowFontScale(scale * .85f);
             ImGui::TextColored(pc::ui::muted, "%s", pc_menu_text("Nothing was unlocked."));
-            ImGui::TextColored(pc::ui::muted, "%s", s.testIcon.c_str());
         } else if (banner.index >= 0) {
             const auto& a = kAchievements[banner.index];
             ImGui::TextColored(pc::ui::text, "%s", pc_menu_text(a.title));
@@ -576,10 +523,6 @@ bool pc_achievements_row(int index, bool selected, const ImVec4& dim, const ImVe
 }
 
 void pc_achievements_test_notice() {
-    static size_t next = 0;
-    const auto icons = notificationIcons();
-    s.testIcon = icons[next++ % icons.size()];
     s.banners.push_back({kTestBanner, 0});
     jingle();
-    notifyConsole(pc_menu_text("Test notification"), s.testIcon);
 }

@@ -1104,7 +1104,7 @@ std::string rowNote(const Row& r) {
 std::string rowHelp(const Row& r) {
     switch (r.kind) {
     case RowKind::Achievements: return T("Goals unlocked from your saved progress. They are kept apart from the game's save and are never lost.");
-    case RowKind::AchievementTest: return T("Closes the menu and shows the achievement banner, jingle and console notification. Nothing is unlocked.");
+    case RowKind::AchievementTest: return T("Closes the menu and shows the achievement banner with its jingle. Nothing is unlocked.");
     case RowKind::MenuDemo: return T("Shows the touchpad hint, tours the tabs, then closes the menu. Menu controls stop the demo. Settings stay unchanged.");
     case RowKind::RestoreDefaults: return T("Deletes the settings file and restores default options. Saves and shader caches are kept. Restart the game afterwards.");
     case RowKind::DeveloperTools: return T("Diagnostics, logs and test actions. Some actions change game progress.");
