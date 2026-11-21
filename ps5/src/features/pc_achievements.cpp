@@ -1,4 +1,5 @@
-// PS5 achievements (phase 1: everything that can be read from the loaded save).
+// PS5 achievements: everything that can be read from the loaded save (items, songs, upgrades,
+// event flags, letters and charts).
 //
 // Checked a few times a second while the PLAY scene runs, so unlocks are also
 // retroactive: loading a save that already has an item unlocks its achievement.
@@ -9,6 +10,7 @@
 #include "pc/pc_menu_language.h"
 #include "pc/pc_settings.h"
 #include "pc/pc_ui_style.h"
+#include "pc/pc_gameplay_options.h"
 #include "pc_internal.h"
 #include "d/d_com_inf_game.h"
 #include "d/d_item_data.h"
@@ -65,6 +67,34 @@ void* findScene(void* proc, void* name) {
     return fpcM_GetName(proc) == *static_cast<s16*>(name) ? proc : nullptr;
 }
 bool sceneRunning(s16 name) { return fpcM_Search(findScene, &name) != nullptr; }
+
+// Phase 2 helpers: event flags, letters and charts in the save.
+bool event(u16 flag) { return dComIfGs_isEventBit(flag) != FALSE; }
+// Letter registers (d_letter.cpp): 0 not sent, 1 sent, 2 in the mailbag, 3 read.
+bool letterSent(u16 letter) { return dComIfGs_getEventReg(letter) >= 1; }
+bool letterReceived(u16 letter) { return dComIfGs_getEventReg(letter) >= 2; }
+// Collection-map numbers, as item_func_collectmapNN gives them: 1-8 Triforce charts,
+// 35, 36, 52 and 53-61 the special charts, 9-34 and 37-51 the 41 Treasure Charts.
+int treasureCharts() {
+    int count = 0;
+    for (int no = 9; no <= 51; ++no)
+        if (no != 35 && no != 36) count += dComIfGs_isGetCollectMap(no) != FALSE;
+    return count;
+}
+int specialCharts() {
+    int count = 0;
+    for (int no : {35, 36, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61}) count += dComIfGs_isGetCollectMap(no) != FALSE;
+    return count;
+}
+// Islands drawn on the Sea Chart (fishmen): bit 0 of each square. The "reveal Sea Chart" option
+// draws them all on new saves, so the mapping achievements wait while it is on.
+int mappedIslands() {
+    if (pc_gameplay_enabled(PC_GAMEPLAY_REVEAL_SEA_CHART)) return 0;
+    int count = 0;
+    auto& map = g_dComIfG_gameInfo.save.getPlayer().getMap();
+    for (int i = 0; i < dIsleIdx_COUNT_e; ++i) count += map.isFmapBit(i, 0) != FALSE;
+    return count;
+}
 
 // ---- item icons ------------------------------------------------------------------------------------
 // The inventory icons come from the disc's /res/Msg/itemicon.arc, which the logo scene mounts for the
@@ -209,11 +239,15 @@ void drawIcon(ImDrawList* draw, u8 item, ImVec2 p, float size, bool unlocked) {
 
 const Achievement kAchievements[] = {
     {"bait_bag", dItemNo_BAIT_BAG_e, "Ready for Hunting", "Obtain the Bait Bag.", [] { return has(dInvSlot_BAIT_BAG_e); }, nullptr},
+    {"met_korl", dItemNo_SAIL_e, "Carried by the Currents", "Meet the King of Red Lions.",
+        [] { return event(dSv_event_flag_c::MET_KORL); }, nullptr},
     {"wind_waker", dItemNo_WIND_WAKER_e, "Maestro of the Mistral", "Obtain the Wind Waker.", [] { return has(dInvSlot_WIND_WAKER_e); }, nullptr},
     {"bottle", dItemNo_EMPTY_BOTTLE_e, "Bottom's Up", "Obtain a bottle.", [] { return bottles() >= 1; }, nullptr},
     {"grappling_hook", dItemNo_GRAPPLING_HOOK_e, "Rope a Dope", "Obtain the Grappling Hook.", [] { return has(dInvSlot_GRAPPLING_HOOK_e); }, nullptr},
     {"pearl_din", dItemNo_PEARL_DIN_e, "Jewel of Power", "Obtain Din's Pearl.", [] { return bool(dComIfGs_isSymbol(dSymbol_DIN_e)); }, nullptr},
     {"winds_requiem", dItemNo_WINDS_REQUIEM_e, "Blown Away", "Learn Wind's Requiem.", [] { return bool(dComIfGs_isTact(kWindsRequiem)); }, nullptr},
+    {"letter_baitos_mom", dItemNo_NOTE_TO_MOM_e, "A Mother's Thanks", "Receive a letter from the mother of Baito, the part-time mail sorter on Dragon Roost Island.",
+        [] { return letterReceived(dSv_event_flag_c::LETTER_BAITOS_MOM); }, nullptr},
     {"song_of_passing", dItemNo_SONG_OF_PASSING_e, "From Dusk 'til Dawn", "Learn the Song of Passing.", [] { return bool(dComIfGs_isTact(kSongOfPassing)); }, nullptr},
     {"deku_leaf", dItemNo_DEKU_LEAF_e, "Flapping in the Breeze", "Obtain the Deku Leaf.", [] { return has(dInvSlot_DEKU_LEAF_e); }, nullptr},
     {"boomerang", dItemNo_BOOMERANG_e, "Back at Ya...Fivefold!", "Obtain the Boomerang.", [] { return has(dInvSlot_BOOMERANG_e); }, nullptr},
@@ -222,19 +256,38 @@ const Achievement kAchievements[] = {
     {"bombs", dItemNo_BOMB_BAG_e, "Have a Blast", "Obtain bombs.", [] { return has(dInvSlot_BOMB_e); }, nullptr},
     {"bombs_60", dItemNo_MAX_BOMB_UP1_e, "Kaboom", "Be able to carry 60 bombs.", [] { return dComIfGs_getBombMax() >= 60; }, nullptr},
     {"bombs_99", dItemNo_MAX_BOMB_UP2_e, "Gunboat Diplomacy", "Be able to carry 99 bombs.", [] { return dComIfGs_getBombMax() >= 99; }, nullptr},
+    {"grandma_soup", dItemNo_SOUP_BOTTLE_e, "Soup is a Hug in a Bottle", "Heal Grandma and receive a brothy boon.",
+        [] { return event(dSv_event_flag_c::GRANDMA_HEALED); }, nullptr},
+    // Orca's Piece of Heart: d_a_npc_ji1.cpp's createItem sets 0x0F10 with it.
+    {"orca_heart", dItemNo_HEART_PIECE_e, "En Garde", "Win a Piece of Heart from Orca for your sword profiency.",
+        [] { return event(dSv_event_flag_c::UNK_0F10); }, nullptr},
+    // setClearRecord sets 0x0F20 once a training session reaches 1,000 hits.
+    {"orca_1000", dItemNo_SWORD_e, "First Intention", "Score 1,000 hits on Orca during sword training.",
+        [] { return event(dSv_event_flag_c::UNK_0F20); }, nullptr},
     {"pearl_nayru", dItemNo_PEARL_NAYRU_e, "For the Love of Nayru", "Obtain Nayru's Pearl.", [] { return bool(dComIfGs_isSymbol(dSymbol_NAYRU_e)); }, nullptr},
     {"wallet_1000", dItemNo_MAX_RUPEE_UP1_e, "Silver Status", "Obtain the first wallet upgrade.", [] { return dComIfGs_getWalletSize() >= 1; }, nullptr},
     {"wallet_5000", dItemNo_MAX_RUPEE_UP2_e, "Deep Pockets", "Obtain the largest wallet.", [] { return dComIfGs_getWalletSize() >= 2; }, nullptr},
     {"deluxe_picto_box", dItemNo_DELUXE_PICTO_BOX_e, "Let There Be Light", "Obtain the Deluxe Picto Box.", [] { return dComIfGs_getItem(dInvSlot_CAMERA_e) == dItemNo_DELUXE_PICTO_BOX_e; }, nullptr},
+    {"tingle_balloon_discount", dItemNo_TINGLE_TUNER_e, "Head of the Class", "Receive a permanent discount on the Tingle Balloon and Tingle Shield.",
+        [] { return event(dSv_event_flag_c::UNLOCK_TINGLE_BALLOON_DISCOUNT); }, nullptr},
+    {"tower_of_the_gods", dItemNo_NONE_e, "From the Sea to the Heavens", "Reveal the Tower of the Gods.",
+        [] { return event(dSv_event_flag_c::PLACED_DINS_PEARL) && event(dSv_event_flag_c::PLACED_FARORES_PEARL) &&
+                    event(dSv_event_flag_c::PLACED_NAYRUS_PEARL); }, nullptr},
     {"command_melody", dItemNo_COMMAND_MELODY_e, "Tench Hut", "Learn the Command Melody.", [] { return bool(dComIfGs_isTact(kCommandMelody)); }, nullptr},
     {"bow", dItemNo_BOW_e, "A Bowyer's Wrath", "Obtain the Hero's Bow.", [] { return has(dInvSlot_BOW_e); }, nullptr},
     {"master_sword", dItemNo_MASTER_SWORD_1_e, "The Successor", "Obtain the Master Sword.", [] { return sword(1); }, nullptr},
     {"ballad_of_gales", dItemNo_BALLAD_OF_GALES_e, "The Voice of Boreas", "Learn the Ballad of Gales.", [] { return bool(dComIfGs_isTact(kBalladOfGales)); }, nullptr},
     {"tingle_tuner", dItemNo_TINGLE_TUNER_e, "Second Hand Junk", "Obtain the Hand-Me-Down Tuner.", [] { return has(dInvSlot_TINGLE_TUNER_e); }, nullptr},
     {"skull_hammer", dItemNo_SKULL_HAMMER_e, "Drop the Hammer", "Obtain the Skull Hammer.", [] { return has(dInvSlot_SKULL_HAMMER_e); }, nullptr},
+    {"ting_discount", dItemNo_TINGLE_TUNER_e, "Left-Over Magic Broth", "Receive a permanent discount on Tingle's Tings.",
+        [] { return event(dSv_event_flag_c::UNLOCK_TING_DISCOUNT); }, nullptr},
     {"magic_arrows", dItemNo_MAGIC_ARROW_e, "Diametrically Opposed", "Obtain the Fire and Ice Arrows.", [] { return arrows(false); }, nullptr},
     {"heros_charm", dItemNo_HEROS_CHARM_e, "The Face of a Champion", "Obtain the Hero's Charm.", [] { return bool(dComIfGs_isCollect(4, 0)); }, nullptr},
     {"magic_armor", dItemNo_MAGIC_ARMOR_e, "Impervious", "Obtain the Magic Armor.", [] { return has(dInvSlot_MAGIC_ARMOR_e); }, nullptr},
+    {"golden_feathers", dItemNo_GOLDEN_FEATHER_e, "Birds of a Feather", "Receive a reward in the mail for helping a Rito collect Golden Feathers.",
+        [] { return letterReceived(dSv_event_flag_c::LETTER_HOSKITS_GIRLFRIEND); }, nullptr},
+    {"letter_aryll", dItemNo_MAGGIES_LETTER_e, "Warmest Regards", "Receive a letter from Aryll.",
+        [] { return letterReceived(dSv_event_flag_c::LETTER_ARYLL); }, nullptr},
     {"power_bracelets", dItemNo_POWER_BRACELETS_e, "Double Up to Catch Up", "Obtain the Power Bracelets.", [] { return bool(dComIfGs_isCollect(2, 0)); }, nullptr},
     {"iron_boots", dItemNo_IRON_BOOTS_e, "In Irons", "Obtain the Iron Boots.", [] { return has(dInvSlot_IRON_BOOTS_e); }, nullptr},
     {"arrows_60", dItemNo_MAX_ARROW_UP1_e, "Adept Archery", "Be able to carry 60 arrows.", [] { return dComIfGs_getArrowMax() >= 60; }, nullptr},
@@ -255,6 +308,20 @@ const Achievement kAchievements[] = {
     // The name-entry scene after the credits starts the second quest from the cleared save.
     {"ganondorf", dItemNo_SAIL_e, "As Dandelions", "Defeat Ganondorf and set sail for a new land.",
         [] { return dComIfGs_getClearCount() != 0; }, nullptr},
+    {"special_charts", dItemNo_COLLECT_MAP_36_e, "Cartophile", "Obtain all special charts.",
+        [] { return specialCharts() >= 12; }, [] { return Progress{specialCharts(), 12}; }},
+    {"sea_chart_half", dItemNo_COLLECT_MAP_53_e, "Rookie Cartographer", "Map half of the islands on your Sea Chart.",
+        [] { return mappedIslands() >= 25; }, [] { return Progress{mappedIslands(), 25}; }},
+    {"sea_chart_full", dItemNo_COLLECT_MAP_53_e, "Master Cartographer", "Map the entire Great Sea.",
+        [] { return mappedIslands() >= dIsleIdx_COUNT_e; }, [] { return Progress{mappedIslands(), dIsleIdx_COUNT_e}; }},
+    {"treasure_charts_20", dItemNo_COLLECT_MAP_09_e, "Treasure Hunter", "Collect 20 Treasure Charts.",
+        [] { return treasureCharts() >= 20; }, [] { return Progress{treasureCharts(), 20}; }},
+    {"treasure_charts_all", dItemNo_COLLECT_MAP_09_e, "Legendary Atlas", "Collect all Treasure Charts.",
+        [] { return treasureCharts() >= 41; }, [] { return Progress{treasureCharts(), 41}; }},
+    {"beedle_silver", dItemNo_COMPLIMENTARY_ID_e, "VIP Customer", "Earn a Silver Membership from Beedle's Shop Ship.",
+        [] { return letterSent(dSv_event_flag_c::LETTER_SILVER_MEMBERSHIP); }, nullptr},
+    {"beedle_gold", dItemNo_FILL_UP_COUPON_e, "Indulgent Shopper", "Earn a Gold Membership from Beedle's Shop Ship.",
+        [] { return letterSent(dSv_event_flag_c::LETTER_GOLD_MEMBERSHIP); }, nullptr},
 };
 constexpr int kCount = int(sizeof(kAchievements) / sizeof(kAchievements[0]));
 
