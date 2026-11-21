@@ -395,3 +395,8 @@
     {"Obtain the Light Arrow.", "Erhalte die Lichtpfeile.", "Obtenir les flèches de lumière.", "Consigue las Flechas de luz.", "Ottieni le frecce di luce."},
     {"As Dandelions", "Wie Pusteblumen", "Comme des pissenlits", "Como dientes de león", "Come soffioni"},
     {"Defeat Ganondorf and set sail for a new land.", "Besiege Ganondorf und segle zu einem neuen Land.", "Vaincre Ganondorf et mettre le cap sur une nouvelle terre.", "Derrota a Ganondorf y zarpa hacia una nueva tierra.", "Sconfiggi Ganondorf e salpa verso una nuova terra."},
+    {"Test achievement notice", "Erfolgsmeldung testen", "Tester l'annonce de succès", "Probar aviso de logro", "Prova avviso obiettivo"},
+    {"Try it", "Ausprobieren", "Essayer", "Probar", "Prova"},
+    {"Closes the menu and shows the achievement banner, jingle and console notification. Nothing is unlocked.", "Schließt das Menü und zeigt Erfolgsbanner, Melodie und Konsolenmeldung. Es wird nichts freigeschaltet.", "Ferme le menu et affiche la bannière, la mélodie et la notification de succès. Rien n'est débloqué.", "Cierra el menú y muestra el banner, la melodía y la notificación de logro. No desbloquea nada.", "Chiude il menu e mostra banner, melodia e notifica dell'obiettivo. Non sblocca nulla."},
+    {"Test notification", "Testmeldung", "Notification de test", "Notificación de prueba", "Notifica di prova"},
+    {"Nothing was unlocked.", "Es wurde nichts freigeschaltet.", "Rien n'a été débloqué.", "No se ha desbloqueado nada.", "Non è stato sbloccato nulla."},

@@ -549,7 +549,7 @@ const PcSettingDesc kFxPresetRow = {"FX_PRESET", "Preset",
 
 // ---- menu state ----------------------------------------------------------------------------------
 
-enum class RowKind { Achievements, MenuDemo, RestoreDefaults, DeveloperTools, Setting, Warp, Sailing, PictoBox, DeluxePictoBox, Screenshot, Reload };
+enum class RowKind { Achievements, AchievementTest, MenuDemo, RestoreDefaults, DeveloperTools, Setting, Warp, Sailing, PictoBox, DeluxePictoBox, Screenshot, Reload };
 
 struct Row {
     RowKind kind;
@@ -629,6 +629,7 @@ std::vector<Row> rowsOf(int tab) {
         rows.push_back({RowKind::PictoBox});
         rows.push_back({RowKind::DeluxePictoBox});
         rows.push_back({RowKind::Screenshot});
+        rows.push_back({RowKind::AchievementTest});
         rows.push_back({RowKind::MenuDemo});
         rows.push_back({RowKind::Reload});
     }
@@ -806,6 +807,12 @@ void activate(const Row& r, int dir) {
     switch (r.kind) {
     case RowKind::Achievements:
         if (dir == 0) { m.achievementsPage = true; m.scrollToRow = true; }
+        break;
+    case RowKind::AchievementTest:
+        if (dir == 0) {
+            setOpen(false);
+            pc_achievements_test_notice();
+        }
         break;
     case RowKind::MenuDemo:
         if (dir == 0) {
@@ -1026,6 +1033,7 @@ const ImVec4 kWarn(1.00f, 0.55f, 0.45f, 1.0f);
 std::string rowLabel(const Row& r) {
     switch (r.kind) {
     case RowKind::Achievements: return T("Achievements");
+    case RowKind::AchievementTest: return T("Test achievement notice");
     case RowKind::MenuDemo: return T("Menu demo");
     case RowKind::RestoreDefaults: return T("Restore defaults");
     case RowKind::DeveloperTools: return T("Developer tools…");
@@ -1048,6 +1056,7 @@ std::string rowValue(const Row& r) {
         snprintf(text, sizeof(text), "%d / %d", pc_achievements_unlocked(), pc_achievements_count());
         return text;
     }
+    case RowKind::AchievementTest: return T("Try it");
     case RowKind::MenuDemo: return T("Start");
     case RowKind::RestoreDefaults: return T("Restore");
     case RowKind::DeveloperTools: return T("Open");
@@ -1095,6 +1104,7 @@ std::string rowNote(const Row& r) {
 std::string rowHelp(const Row& r) {
     switch (r.kind) {
     case RowKind::Achievements: return T("Goals unlocked from your saved progress. They are kept apart from the game's save and are never lost.");
+    case RowKind::AchievementTest: return T("Closes the menu and shows the achievement banner, jingle and console notification. Nothing is unlocked.");
     case RowKind::MenuDemo: return T("Shows the touchpad hint, tours the tabs, then closes the menu. Menu controls stop the demo. Settings stay unchanged.");
     case RowKind::RestoreDefaults: return T("Deletes the settings file and restores default options. Saves and shader caches are kept. Restart the game afterwards.");
     case RowKind::DeveloperTools: return T("Diagnostics, logs and test actions. Some actions change game progress.");
@@ -1289,13 +1299,8 @@ void drawMenu() {
             pc_ps5_menu_section(heading);
             for (int i = 0; i < count; i++) {
                 const PcAchievementInfo info = pc_achievements_at(i);
-                char value[48];
-                if (info.unlocked) snprintf(value, sizeof(value), "%s", T("Unlocked"));
-                else if (info.progress >= 0) snprintf(value, sizeof(value), "%d / %d", info.progress, info.goal);
-                else snprintf(value, sizeof(value), "%s", T("Locked"));
                 ImGui::PushID(i);
-                if (pc_ps5_gameplay_option_row(T(info.title), value, false, i == m.achievementRow,
-                        !info.unlocked, kDim, kAccent, false))
+                if (pc_achievements_row(i, i == m.achievementRow, kDim, kAccent))
                     m.achievementRow = i;
                 if (i == m.achievementRow) scrollSelectedRow(i == 0);
                 ImGui::PopID();
@@ -1383,6 +1388,7 @@ void drawMenu() {
         else if (kind == RowKind::DeveloperTools || kind == RowKind::Warp || kind == RowKind::Achievements)
             action = T("Open");
         else if (kind == RowKind::Screenshot) action = T("Capture");
+        else if (kind == RowKind::AchievementTest) action = T("Try it");
         else if (kind == RowKind::Reload) action = T("Reload");
         else if (kind == RowKind::RestoreDefaults) action = T("Restore");
         else if (kind == RowKind::MenuDemo) action = T("Start");
